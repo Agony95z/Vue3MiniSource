@@ -1,5 +1,7 @@
 import { extend } from "../shared";
 
+let activeEffect;
+let shouldTrack;
 class ReactiveEffect {
   private _fn: any
   deps = []
@@ -10,7 +12,15 @@ class ReactiveEffect {
   }
   run() {
     activeEffect = this
-    return this._fn()
+    if (!this.active) {
+      return this._fn()
+    }
+    shouldTrack = true
+    activeEffect = this
+    const result = this._fn()
+    // reset
+    shouldTrack = false
+    return result
   }
   // 清除effect副作用 比如 更改响应式数据 不去触发effect副作用 stop(runner) runner为函数副作用 也就是effect的入参 -- 回调函数
   stop() {
@@ -29,9 +39,12 @@ function cleanupEffect (effect) {
   effect.deps.forEach((dep: any) => {
     dep.delete(effect)
   });
+  effect.deps.length = 0
 }
 const targetMap = new Map()
 export function track (target, key) {
+  if (!activeEffect) return; // 针对单纯的触发reactive中的get--track而没有触发effect副作用 也就不存在activeEffect
+  if (!shouldTrack) return;
   // target -> key -> dep
   let depsMap = targetMap.get(target)
   if (!depsMap) {
@@ -43,7 +56,8 @@ export function track (target, key) {
     dep = new Set()
     depsMap.set(key, dep)
   }
-  if (!activeEffect) return; // 针对单纯的触发reactive中的get--track而没有触发effect副作用 也就不存在activeEffect
+
+  if (dep.has(activeEffect)) return;
   dep.add(activeEffect) // 收集effect副作用
   activeEffect.deps.push(dep) // 收集dep
 }
@@ -60,7 +74,6 @@ export function trigger (target, key) {
   }
 }
 
-let activeEffect;
 export function effect (fn, options:any = {}) {
   // const scheduler = options.scheduler;
   // fn
